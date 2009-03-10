@@ -1,0 +1,15 @@
+Build.PL
+Changes
+lib/Net/Async/FTP.pm
+Makefile.PL
+MANIFEST			This list of files
+META.yml
+t/00use.t
+t/01login.t
+t/02connect.t
+t/10commands-simple.t
+t/11commands-stat.t
+t/12commands-retr.t
+t/13commands-stor.t
+t/14commands-list.t
+t/TestFTP.pm
