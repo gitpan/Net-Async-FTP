@@ -1,4 +1,8 @@
 Revision history for Net-Async-FTP
 
+0.02    BUGFIXES:
+         * Force TZ=GMT during tests so that File::Listing timestamps are
+           repeatable
+
 0.01    First version, released on an unsuspecting world.
 

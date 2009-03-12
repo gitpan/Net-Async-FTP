@@ -9,6 +9,12 @@ use IO::Async::Stream;
 
 use Net::Async::FTP;
 
+BEGIN {
+   # File::Listing tries to parse timestamps in the local timezone. To make
+   # the tests repeatable, we'll force it to GMT
+   $ENV{TZ} = "GMT";
+}
+
 my $CRLF = "\x0d\x0a"; # because \r\n isn't portable
 
 my $loop = IO::Async::Loop->new();
