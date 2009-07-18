@@ -6,11 +6,12 @@
 package Net::Async::FTP;
 
 use strict;
+use warnings;
 use base qw( IO::Async::Stream );
 
 use Carp;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 use Socket qw( AF_INET SOCK_STREAM inet_aton pack_sockaddr_in );
 
@@ -1075,10 +1076,10 @@ __END__
 
 =item *
 
-L<RFC 959|http://tools.ieft.org/html/rfc959> - FILE TRANSFER PROTOCOL (FTP)
+L<http://tools.ieft.org/html/rfc959> - FILE TRANSFER PROTOCOL (FTP)
 
 =back
 
 =head1 AUTHOR
 
-Paul Evans E<lt>leonerd@leonerd.org.ukE<gt>
+Paul Evans <leonerd@leonerd.org.uk>
