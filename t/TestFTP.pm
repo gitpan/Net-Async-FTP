@@ -2,7 +2,7 @@ package t::TestFTP;
 
 use strict;
 
-use base qw( Exporter );
+use Exporter 'import';
 our @EXPORT = qw(
    accept_dataconn
 );

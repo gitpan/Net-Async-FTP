@@ -1,17 +1,17 @@
 #  You may distribute under the terms of either the GNU General Public License
 #  or the Artistic License (the same terms as Perl itself)
 #
-#  (C) Paul Evans, 2008 -- leonerd@leonerd.org.uk
+#  (C) Paul Evans, 2008-2010 -- leonerd@leonerd.org.uk
 
 package Net::Async::FTP;
 
 use strict;
 use warnings;
-use base qw( IO::Async::Stream );
+use base qw( IO::Async::Protocol::Stream );
 
 use Carp;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 use Socket qw( AF_INET SOCK_STREAM inet_aton pack_sockaddr_in );
 
@@ -179,7 +179,9 @@ sub connect
       on_connected => sub {
          my ( $sock ) = @_;
 
-         $self->set_handle( $sock );
+         $self->configure(
+            transport => IO::Async::Stream->new( handle => $sock ),
+         );
 
          # TODO: This is a bit messy. Install an initial on_read handler for
          # the connect messages, by sending an "empty string" command

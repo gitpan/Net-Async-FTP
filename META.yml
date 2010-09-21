@@ -1,24 +1,26 @@
 ---
-name: Net-Async-FTP
-version: 0.03
+abstract: 'Asynchronous FTP client'
 author:
   - 'Paul Evans <leonerd@leonerd.org.uk>'
-abstract: Asynchronous FTP client
-license: perl
-resources:
-  license: http://dev.perl.org/licenses/
-requires:
-  File::Listing: 0
-  IO::Async: 0.17
 build_requires:
-  IO::Async::Sequencer: 0
   IO::Async::Test: 0
   Test::More: 0
-provides:
-  Net::Async::FTP:
-    file: lib/Net/Async/FTP.pm
-    version: 0.03
-generated_by: Module::Build version 0.33
+configure_requires:
+  Module::Build: 0.36
+generated_by: 'Module::Build version 0.3607'
+license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
   version: 1.4
+name: Net-Async-FTP
+provides:
+  Net::Async::FTP:
+    file: lib/Net/Async/FTP.pm
+    version: 0.04
+requires:
+  File::Listing: 0
+  IO::Async: 0.17
+  IO::Async::Protocol::Stream: 0
+resources:
+  license: http://dev.perl.org/licenses/
+version: 0.04
