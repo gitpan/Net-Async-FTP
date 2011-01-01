@@ -1,5 +1,5 @@
 ---
-abstract: 'Asynchronous FTP client'
+abstract: 'Use FTP with C<IO::Async>'
 author:
   - 'Paul Evans <leonerd@leonerd.org.uk>'
 build_requires:
@@ -16,11 +16,11 @@ name: Net-Async-FTP
 provides:
   Net::Async::FTP:
     file: lib/Net/Async/FTP.pm
-    version: 0.04
+    version: 0.05
 requires:
   File::Listing: 0
-  IO::Async: 0.17
-  IO::Async::Protocol::Stream: 0
+  IO::Async: 0.30
+  IO::Async::Protocol::Stream: 0.34
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.04
+version: 0.05

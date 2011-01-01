@@ -1,5 +1,5 @@
 NAME
-    "Net::Async::FTP" - Asynchronous FTP client
+    "Net::Async::FTP" - Use FTP with "IO::Async"
 
 SYNOPSIS
      use IO::Async::Loop;

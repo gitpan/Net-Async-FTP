@@ -8,10 +8,11 @@ package Net::Async::FTP;
 use strict;
 use warnings;
 use base qw( IO::Async::Protocol::Stream );
+IO::Async::Protocol::Stream->VERSION( '0.34' );
 
 use Carp;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 use Socket qw( AF_INET SOCK_STREAM inet_aton pack_sockaddr_in );
 
@@ -19,7 +20,7 @@ my $CRLF = "\x0d\x0a";
 
 =head1 NAME
 
-C<Net::Async::FTP> - Asynchronous FTP client
+C<Net::Async::FTP> - Use FTP with C<IO::Async>
 
 =head1 SYNOPSIS
 
@@ -162,27 +163,17 @@ sub connect
    my $self = shift;
    my %args = @_;
 
-   my $loop = $self->get_loop or croak "Cannot ->connect a ".ref($self)." that is not in a Loop";
-
-   my $on_connected = $args{on_connected};
+   my $on_connected = delete $args{on_connected};
    ref $on_connected eq "CODE" or croak "Expected 'on_connected' as a CODE reference";
 
    my $on_error = $args{on_error};
    ref $on_error eq "CODE" or croak "Expected 'on_error' as a CODE reference";
 
-   $loop->connect(
-      host     => $args{host},
-      service  => $args{service} || "ftp",
-      socktype => SOCK_STREAM,
-      family   => $args{family},
+   $self->SUPER::connect(
+      service => "ftp",
+      %args,
 
       on_connected => sub {
-         my ( $sock ) = @_;
-
-         $self->configure(
-            transport => IO::Async::Stream->new( handle => $sock ),
-         );
-
          # TODO: This is a bit messy. Install an initial on_read handler for
          # the connect messages, by sending an "empty string" command
          $self->do_command( undef,

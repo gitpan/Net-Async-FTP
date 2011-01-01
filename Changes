@@ -1,5 +1,8 @@
 Revision history for Net-Async-FTP
 
+0.05    CHANGES:
+         * Use Protocol->connect of IO::Async 0.34
+
 0.04    CHANGES:
          * use Exporter 'import' instead of use base 'Exporter'
          * base on IO::Async::Protocol::Stream

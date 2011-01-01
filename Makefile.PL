@@ -6,8 +6,8 @@ WriteMakefile
           'VERSION_FROM' => 'lib/Net/Async/FTP.pm',
           'PREREQ_PM' => {
                            'File::Listing' => 0,
-                           'IO::Async' => '0.17',
-                           'IO::Async::Protocol::Stream' => 0,
+                           'IO::Async' => '0.30',
+                           'IO::Async::Protocol::Stream' => '0.34',
                            'IO::Async::Test' => 0,
                            'Test::More' => 0
                          },

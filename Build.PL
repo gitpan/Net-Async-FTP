@@ -6,8 +6,8 @@ use Module::Build;
 my $build = Module::Build->new(
    module_name => 'Net::Async::FTP',
    requires => {
-      'IO::Async' => '0.17',
-      'IO::Async::Protocol::Stream' => 0,
+      'IO::Async' => '0.30',
+      'IO::Async::Protocol::Stream' => '0.34',
       'File::Listing' => 0,
    },
    build_requires => {
