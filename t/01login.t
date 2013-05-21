@@ -1,10 +1,12 @@
-#!/usr/bin/perl -w
+#!/usr/bin/perl
 
 use strict;
+use warnings;
 
-use Test::More tests => 5;
+use Test::More;
 use IO::Async::Test;
 use IO::Async::Loop;
+use IO::Async::OS;
 use IO::Async::Stream;
 
 use Net::Async::FTP;
@@ -14,7 +16,7 @@ my $CRLF = "\x0d\x0a"; # because \r\n isn't portable
 my $loop = IO::Async::Loop->new();
 testing_loop( $loop );
 
-my ( $S1, $S2 ) = $loop->socketpair() or die "Cannot create socket pair - $!";
+my ( $S1, $S2 ) = IO::Async::OS->socketpair() or die "Cannot create socket pair - $!";
 
 my $ftp = Net::Async::FTP->new(
    transport => IO::Async::Stream->new( handle => $S1 ),
@@ -51,3 +53,5 @@ $S2->syswrite( "230 Logged In$CRLF" );
 wait_for { $loggedin };
 
 is( $loggedin, 1, '$loggedin after 230' );
+
+done_testing;

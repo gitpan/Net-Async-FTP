@@ -1,5 +1,5 @@
 NAME
-    "Net::Async::FTP" - Use FTP with "IO::Async"
+    `Net::Async::FTP' - use FTP with `IO::Async'
 
 SYNOPSIS
      use IO::Async::Loop;
@@ -48,15 +48,15 @@ DESCRIPTION
     anyway, because it is still useful as it stands, and could easily
     support extra commands being added if anyone would find it useful.
 
-    The (undocumented) "do_command()" method provides a generic base for the
+    The (undocumented) `do_command()' method provides a generic base for the
     currently-implemented commands, and would be the basis for new commands.
 
     As they say so often in the open-source world; Patches Welcome.
 
 CONSTRUCTOR
   $ftp = Net::Async::FTP->new( %args )
-    This function returns a new instance of a "Net::Async::FTP" object. As
-    it is a subclass of "IO::Async::Stream" its constructor takes any
+    This function returns a new instance of a `Net::Async::FTP' object. As
+    it is a subclass of `IO::Async::Stream' its constructor takes any
     arguments for that class.
 
 METHODS
@@ -68,11 +68,11 @@ METHODS
 
     service => STRING or INT
             Optional. Service name or port number to connect to. If not
-            supplied, will use "ftp".
+            supplied, will use `ftp'.
 
     family => INT
             Optional. Socket family to use. Will default to whatever
-            "getaddrinfo()" returns if not supplied.
+            `getaddrinfo()' returns if not supplied.
 
     on_connected => CODE
             Continuation to call when connection is successful
@@ -85,14 +85,14 @@ METHODS
              $on_error->( $message )
 
   $ftp->login( %args )
-    Sends a "USER" and optionally "PASS" command. Takes the following
+    Sends a `USER' and optionally `PASS' command. Takes the following
     arguments:
 
     user => STRING
-            Username for the "USER" command
+            Username for the `USER' command
 
     pass => STRING
-            Password for the "PASS" command if required
+            Password for the `PASS' command if required
 
     on_login => CODE
             Continuation to invoke on successful login.
@@ -140,16 +140,16 @@ METHODS
              $on_error->( $message )
 
   $ftp->list( %args )
-    Runs a "LIST" command on a path on the remote server; which requests
+    Runs a `LIST' command on a path on the remote server; which requests
     details on the file, or contents of the directory. Takes the following
     arguments
 
     path => STRING
-            Path to "LIST"
+            Path to `LIST'
 
     on_list => CODE
             Continuation to invoke on success. Is passed a list of lines
-            from the "LIST" result in a single string.
+            from the `LIST' result in a single string.
 
              $on_list->( $list )
 
@@ -158,18 +158,18 @@ METHODS
 
              $on_error->( $message )
 
-    The "list_parsed" method may be easier to use as it parses the lines.
+    The `list_parsed' method may be easier to use as it parses the lines.
 
   $ftp->list_parsed( %args )
-    Runs a "LIST" command on a path on the remote server; and parse the
+    Runs a `LIST' command on a path on the remote server; and parse the
     result lines. Takes the following arguments
 
     path => STRING
-            Path to "LIST"
+            Path to `LIST'
 
     on_list => CODE
             Continuation to invoke on success. Is passed a list of files
-            from the "LIST" result, one line per element.
+            from the `LIST' result, one line per element.
 
              $on_list->( @list )
 
@@ -178,14 +178,14 @@ METHODS
 
              $on_error->( $message )
 
-    The @list array will be passed a list of "HASH" references, each formed
-    like
+    The `@list' array will be passed a list of `HASH' references, each
+    formed like
 
     name => STRING
             The filename
 
     type => STRING
-            A single character; "f" for files, "d" for directories
+            A single character; `f' for files, `d' for directories
 
     size => INT
             The size in bytes
@@ -197,15 +197,15 @@ METHODS
             The access mode, as a number
 
   $ftp->nlist( %args )
-    Runs a "NLST" command on a path on the remote server; which requests a
+    Runs a `NLST' command on a path on the remote server; which requests a
     list of filenames in a directory. Takes the following arguments
 
     path => STRING
-            Path to "NLST"
+            Path to `NLST'
 
     on_list => CODE
             Continuation to invoke on success. Is passed a list of names
-            from the "NLST" result in a single string.
+            from the `NLST' result in a single string.
 
              $on_list->( $list )
 
@@ -214,18 +214,18 @@ METHODS
 
              $on_error->( $message )
 
-    The "namelist" method may be easier to use as it splits the lines.
+    The `namelist' method may be easier to use as it splits the lines.
 
   $ftp->namelist( %args )
-    Runs a "NLST" command on a path on the remote server; which requests a
+    Runs a `NLST' command on a path on the remote server; which requests a
     list of filenames in a directory. Takes the following arguments
 
     path => STRING
-            Path to "NLST"
+            Path to `NLST'
 
     on_names => CODE
             Continuation to invoke on success. Is passed a list of names
-            from the "NLST" result in a list, one name per entry
+            from the `NLST' result in a list, one name per entry
 
              $on_name->( @names )
 
@@ -252,16 +252,16 @@ METHODS
              $on_error->( $message )
 
   $ftp->stat( %args )
-    Runs a "STAT" command on a path on the remote server; which requests
+    Runs a `STAT' command on a path on the remote server; which requests
     details on the file, or contents of the directory. Takes the following
     arguments
 
     path => STRING
-            Path to "STAT"
+            Path to `STAT'
 
     on_stat => CODE
             Continuation to invoke on success. Is passed a list of lines
-            from the "STAT" result, one line per element.
+            from the `STAT' result, one line per element.
 
              $on_stat->( @stat )
 
@@ -270,18 +270,18 @@ METHODS
 
              $on_error->( $message )
 
-    The "stat_parsed" method may be easier to use as it parses the lines.
+    The `stat_parsed' method may be easier to use as it parses the lines.
 
   $ftp->stat_parsed( %args )
-    Runs a "STAT" command on a path on the remote server; and parse the
+    Runs a `STAT' command on a path on the remote server; and parse the
     result lines. Takes the following arguments
 
     path => STRING
-            Path to "STAT"
+            Path to `STAT'
 
     on_stat => CODE
             Continuation to invoke on success. Is passed a list of lines
-            from the "STAT" result, one line per element.
+            from the `STAT' result, one line per element.
 
              $on_stat->( @stat )
 
@@ -290,14 +290,14 @@ METHODS
 
              $on_error->( $message )
 
-    The @stat array will be passed a list of "HASH" references, each formed
-    like
+    The `@stat' array will be passed a list of `HASH' references, each
+    formed like
 
     name => STRING
             The filename
 
     type => STRING
-            A single character; "f" for files, "d" for directories
+            A single character; `f' for files, `d' for directories
 
     size => INT
             The size in bytes
@@ -308,10 +308,10 @@ METHODS
     mode => INT
             The access mode, as a number
 
-    If "STAT" is invoked on a file, then @stat will contain a single
-    reference to represent it. If invoked on a directory, the @stat will
+    If `STAT' is invoked on a file, then `@stat' will contain a single
+    reference to represent it. If invoked on a directory, the `@stat' will
     start with a reference about the directory itself (whose name will be
-    "."), then one per item in the directory, in the order the server
+    `.'), then one per item in the directory, in the order the server
     returned the lines.
 
   $ftp->stor( %args )
@@ -334,7 +334,7 @@ METHODS
              $on_error->( $message )
 
 SEE ALSO
-    *   <http://tools.ieft.org/html/rfc959> - FILE TRANSFER PROTOCOL (FTP)
+    *   http://tools.ieft.org/html/rfc959 - FILE TRANSFER PROTOCOL (FTP)
 
 AUTHOR
     Paul Evans <leonerd@leonerd.org.uk>

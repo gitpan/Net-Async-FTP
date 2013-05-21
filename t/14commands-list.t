@@ -1,10 +1,12 @@
-#!/usr/bin/perl -w
+#!/usr/bin/perl
 
 use strict;
+use warnings;
 
-use Test::More tests => 16;
+use Test::More;
 use IO::Async::Test;
 use IO::Async::Loop;
+use IO::Async::OS;
 use IO::Async::Stream;
 
 use Net::Async::FTP;
@@ -21,7 +23,7 @@ my $CRLF = "\x0d\x0a"; # because \r\n isn't portable
 my $loop = IO::Async::Loop->new();
 testing_loop( $loop );
 
-my ( $S1, $S2 ) = $loop->socketpair() or die "Cannot create socket pair - $!";
+my ( $S1, $S2 ) = IO::Async::OS->socketpair() or die "Cannot create socket pair - $!";
 
 my $ftp = Net::Async::FTP->new(
    transport => IO::Async::Stream->new( handle => $S1 ),
@@ -164,3 +166,5 @@ is( $done, 1, '$done after 226' );
 is_deeply( \@names,
            [qw( foo bar splot )],
            '@names after 226' );
+
+done_testing;

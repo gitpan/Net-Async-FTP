@@ -1,7 +1,7 @@
 #  You may distribute under the terms of either the GNU General Public License
 #  or the Artistic License (the same terms as Perl itself)
 #
-#  (C) Paul Evans, 2008-2010 -- leonerd@leonerd.org.uk
+#  (C) Paul Evans, 2008-2013 -- leonerd@leonerd.org.uk
 
 package Net::Async::FTP;
 
@@ -12,7 +12,7 @@ IO::Async::Protocol::Stream->VERSION( '0.34' );
 
 use Carp;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 use Socket qw( AF_INET SOCK_STREAM inet_aton pack_sockaddr_in );
 
@@ -20,7 +20,7 @@ my $CRLF = "\x0d\x0a";
 
 =head1 NAME
 
-C<Net::Async::FTP> - Use FTP with C<IO::Async>
+C<Net::Async::FTP> - use FTP with C<IO::Async>
 
 =head1 SYNOPSIS
 

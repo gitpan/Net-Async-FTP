@@ -1,8 +1,9 @@
-#!/usr/bin/perl -w
+#!/usr/bin/perl
 
 use strict;
+use warnings;
 
-use Test::More tests => 4;
+use Test::More;
 use IO::Async::Test;
 use IO::Async::Loop;
 use IO::Async::Stream;
@@ -77,3 +78,5 @@ $newclient->syswrite( "230 Logged In$CRLF" );
 wait_for { $loggedin };
 
 is( $loggedin, 1, '$loggedin after 230' );
+
+done_testing;

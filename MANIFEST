@@ -17,3 +17,4 @@ t/13commands-stor.t
 t/14commands-list.t
 t/99pod.t
 t/TestFTP.pm
+META.json
