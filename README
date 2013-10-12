@@ -12,31 +12,20 @@ SYNOPSIS
 
      $ftp->connect(
         host => "ftp.example.com",
-
-        on_connected => sub {
-           $ftp->login(
-              user => "username",
-              pass => "password",
-
-              on_login => sub {
-                 $ftp->retr(
-                    path => "README.txt",
-
-                    on_data => sub {
-                       my ( $data ) = @_;
-                       print "README.txt says:\n";
-                       print $data;
-                       $loop->loop_stop;
-                    },
-                 );
-              },
-              on_error => sub { die shift() },
-           );
-        },
-        on_error => sub { die shift() },
-     );
-
-     $loop->loop_forever;
+     )->then( sub {
+        $ftp->login(
+           user => "username",
+           pass => "password",
+        )
+     })->then( sub {
+        $ftp->retr(
+           path => "README.txt",
+        )
+     })->then( sub {
+        my ( $data ) = @_;
+        print "README.txt says:\n";
+        print $data;
+     })->get;
 
 DESCRIPTION
     This object class implements an asynchronous FTP client, for use in
@@ -60,7 +49,7 @@ CONSTRUCTOR
     arguments for that class.
 
 METHODS
-  $ftp->connect( %args )
+  $ftp->connect( %args ) ==> ()
     Connects to the FTP server. Takes the following arguments:
 
     host => STRING
@@ -75,16 +64,18 @@ METHODS
             `getaddrinfo()' returns if not supplied.
 
     on_connected => CODE
-            Continuation to call when connection is successful
+            Optional when returning a Future. Continuation to call when
+            connection is successful.
 
              $on_connected->()
 
     on_error => CODE
-            Continuation to call on an error
+            Optional when returning a Future. Continuation to call on an
+            error.
 
              $on_error->( $message )
 
-  $ftp->login( %args )
+  $ftp->login( %args ) ==> ()
     Sends a `USER' and optionally `PASS' command. Takes the following
     arguments:
 
@@ -95,16 +86,18 @@ METHODS
             Password for the `PASS' command if required
 
     on_login => CODE
-            Continuation to invoke on successful login.
+            Optional when returning a future. Continuation to invoke on
+            successful login.
 
              $on_login->()
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional when returning a future. Continuation to invoke on an
+            error.
 
              $on_error->( $message )
 
-  $ftp->rename( %args )
+  $ftp->rename( %args ) ==> ()
     Renames a file on the remote server. Takes the following arguments
 
     oldpath => STRING
@@ -114,32 +107,34 @@ METHODS
             Desired new path for the file
 
     on_done => CODE
-            Continuation to invoke on success.
+            Optional when returning a future. Continuation to invoke on
+            success.
 
              $on_done->()
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional. Continuation to invoke on an error.
 
              $on_error->( $message )
 
-  $ftp->dele( %args )
+  $ftp->dele( %args ) ==> ()
     Deletes a file on the remote server. Takes the following arguments
 
     path => STRING
             Path to file to delete
 
     on_done => CODE
-            Continuation to invoke on success.
+            Optional when returning a future. Continuation to invoke on
+            success.
 
              $on_done->()
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional. Continuation to invoke on an error.
 
              $on_error->( $message )
 
-  $ftp->list( %args )
+  $ftp->list( %args ) ==> $list
     Runs a `LIST' command on a path on the remote server; which requests
     details on the file, or contents of the directory. Takes the following
     arguments
@@ -148,19 +143,20 @@ METHODS
             Path to `LIST'
 
     on_list => CODE
-            Continuation to invoke on success. Is passed a list of lines
-            from the `LIST' result in a single string.
+            Optional when returning a future. Continuation to invoke on
+            success. Is passed a list of lines from the `LIST' result in a
+            single string.
 
              $on_list->( $list )
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional. Continuation to invoke on an error.
 
              $on_error->( $message )
 
     The `list_parsed' method may be easier to use as it parses the lines.
 
-  $ftp->list_parsed( %args )
+  $ftp->list_parsed( %args ) ==> @list
     Runs a `LIST' command on a path on the remote server; and parse the
     result lines. Takes the following arguments
 
@@ -168,13 +164,14 @@ METHODS
             Path to `LIST'
 
     on_list => CODE
-            Continuation to invoke on success. Is passed a list of files
-            from the `LIST' result, one line per element.
+            Optional when returning a future. Continuation to invoke on
+            success. Is passed a list of files from the `LIST' result, one
+            line per element.
 
              $on_list->( @list )
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional. Continuation to invoke on an error.
 
              $on_error->( $message )
 
@@ -196,7 +193,7 @@ METHODS
     mode => INT
             The access mode, as a number
 
-  $ftp->nlist( %args )
+  $ftp->nlist( %args ) ==> $list
     Runs a `NLST' command on a path on the remote server; which requests a
     list of filenames in a directory. Takes the following arguments
 
@@ -204,19 +201,20 @@ METHODS
             Path to `NLST'
 
     on_list => CODE
-            Continuation to invoke on success. Is passed a list of names
-            from the `NLST' result in a single string.
+            Optional when returning a future. Continuation to invoke on
+            success. Is passed a list of names from the `NLST' result in a
+            single string.
 
              $on_list->( $list )
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional. Continuation to invoke on an error.
 
              $on_error->( $message )
 
     The `namelist' method may be easier to use as it splits the lines.
 
-  $ftp->namelist( %args )
+  $ftp->namelist( %args ) ==> @names
     Runs a `NLST' command on a path on the remote server; which requests a
     list of filenames in a directory. Takes the following arguments
 
@@ -224,34 +222,35 @@ METHODS
             Path to `NLST'
 
     on_names => CODE
-            Continuation to invoke on success. Is passed a list of names
-            from the `NLST' result in a list, one name per entry
+            Optional when returning a future. Continuation to invoke on
+            success. Is passed a list of names from the `NLST' result in a
+            list, one name per entry
 
              $on_name->( @names )
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional. Continuation to invoke on an error.
 
              $on_error->( $message )
 
-  $ftp->retr( %args )
+  $ftp->retr( %args ) ==> $content
     Retrieves a file on the remote server. Takes the following arguments
 
     path => STRING
             Path to file to retrieve
 
     on_data => CODE
-            Continuation to invoke on success. Is passed the contents of the
-            file as a single string.
+            Optional when returning a future. Continuation to invoke on
+            success. Is passed the contents of the file as a single string.
 
              $on_data->( $content )
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional. Continuation to invoke on an error.
 
              $on_error->( $message )
 
-  $ftp->stat( %args )
+  $ftp->stat( %args ) ==> @stat
     Runs a `STAT' command on a path on the remote server; which requests
     details on the file, or contents of the directory. Takes the following
     arguments
@@ -260,19 +259,20 @@ METHODS
             Path to `STAT'
 
     on_stat => CODE
-            Continuation to invoke on success. Is passed a list of lines
-            from the `STAT' result, one line per element.
+            Optional when not returning a future. Continuation to invoke on
+            success. Is passed a list of lines from the `STAT' result, one
+            line per element.
 
              $on_stat->( @stat )
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional. Continuation to invoke on an error.
 
              $on_error->( $message )
 
     The `stat_parsed' method may be easier to use as it parses the lines.
 
-  $ftp->stat_parsed( %args )
+  $ftp->stat_parsed( %args ) ==> @stat
     Runs a `STAT' command on a path on the remote server; and parse the
     result lines. Takes the following arguments
 
@@ -280,13 +280,14 @@ METHODS
             Path to `STAT'
 
     on_stat => CODE
-            Continuation to invoke on success. Is passed a list of lines
-            from the `STAT' result, one line per element.
+            Optional when returning a future. Continuation to invoke on
+            success. Is passed a list of lines from the `STAT' result, one
+            line per element.
 
              $on_stat->( @stat )
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional. Continuation to invoke on an error.
 
              $on_error->( $message )
 
@@ -314,7 +315,7 @@ METHODS
     `.'), then one per item in the directory, in the order the server
     returned the lines.
 
-  $ftp->stor( %args )
+  $ftp->stor( %args ) ==> ()
     Stores a file on the remote server. Takes the following arguments
 
     path => STRING
@@ -324,12 +325,13 @@ METHODS
             New contents for the file
 
     on_stored => CODE
-            Continuation to invoke on success.
+            Optional when returning a future. Continuation to invoke on
+            success.
 
              $on_stored->()
 
     on_error => CODE
-            Continuation to invoke on an error.
+            Optional. Continuation to invoke on an error.
 
              $on_error->( $message )
 

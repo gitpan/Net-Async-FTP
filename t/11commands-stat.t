@@ -24,129 +24,219 @@ testing_loop( $loop );
 
 my ( $S1, $S2 ) = IO::Async::OS->socketpair() or die "Cannot create socket pair - $!";
 
-my $ftp = Net::Async::FTP->new(
-   transport => IO::Async::Stream->new( handle => $S1 ),
-);
+my $ftp = Net::Async::FTP->new( handle => $S1 );
 
 $loop->add( $ftp );
 
 # We won't log in.. our pseudo-server will just accept any command
 
-my $done;
-my @stats;
+# ->stat future
+{
+   my $f = $ftp->stat(
+      path => "path/to/file",
+   );
 
-$ftp->stat(
-   path => "path/to/file",
-   on_stat => sub { @stats = @_; $done = 1 },
-);
+   my $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-my $server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   is( $server_stream, "STAT path/to/file$CRLF", 'STAT command' );
 
-is( $server_stream, "STAT path/to/file$CRLF", 'STAT command' );
+   $S2->syswrite( "211-Status of path/to/file$CRLF" );
+   $S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 path/to/file$CRLF" );
+   $S2->syswrite( "211 End of status$CRLF" );
 
-$S2->syswrite( "211-Status of path/to/file$CRLF" );
-$S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 path/to/file$CRLF" );
-$S2->syswrite( "211 End of status$CRLF" );
+   wait_for { $f->is_ready };
 
-wait_for { $done };
+   my @stats = $f->get;
+   is_deeply( \@stats,
+              [ '-rw-r--r--   1 user     user          100 Feb  2  2005 path/to/file' ],
+              '@stats after 211' );
+}
 
-is( $done, 1, '$done after 211' );
-is_deeply( \@stats,
-           [ '-rw-r--r--   1 user     user          100 Feb  2  2005 path/to/file' ],
-           '@stats after 211' );
+# ->stat_parsed future
+{
+   my $f;
+   my @stats;
 
-$done = 0;
+   $f = $ftp->stat_parsed(
+      path => "path/to/file",
+   );
 
-$ftp->stat(
-   path => "path/to",
-   on_stat => sub { @stats = @_; $done = 1 },
-);
+   my $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   is( $server_stream, "STAT path/to/file$CRLF", 'STAT command parsed' );
 
-is( $server_stream, "STAT path/to$CRLF", 'STAT command on dir' );
+   $S2->syswrite( "211-Status of path/to/file$CRLF" );
+   $S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 path/to/file$CRLF" );
+   $S2->syswrite( "211 End of status$CRLF" );
 
-$S2->syswrite( "211-Status of path/to$CRLF" );
-$S2->syswrite( "211-drwxr-xr-x   2 user     user            0 Feb  1  2005 .$CRLF" );
-$S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 file$CRLF" );
-$S2->syswrite( "211--rw-r--r--   1 user     user          200 Feb  3  2005 other$CRLF" );
-$S2->syswrite( "211 End of status$CRLF" );
+   wait_for { $f->is_ready };
 
-wait_for { $done };
+   @stats = $f->get;
+   is_deeply( \@stats,
+              [ { name  => "path/to/file", 
+                  type  => "f",
+                  size  => 100,
+                  mtime => 1107302400,
+                  mode  => 0100644 } ],
+              '@stats after 211 parsed' );
 
-is( $done, 1, '$done after 211 on dir' );
-is_deeply( \@stats,
-           [ 'drwxr-xr-x   2 user     user            0 Feb  1  2005 .',
-             '-rw-r--r--   1 user     user          100 Feb  2  2005 file',
-             '-rw-r--r--   1 user     user          200 Feb  3  2005 other' ],
-           '@stats after 211 on dir' );
+   $f = $ftp->stat_parsed(
+      path => "path/to",
+   );
 
-$done = 0;
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-$ftp->stat_parsed(
-   path => "path/to/file",
-   on_stat => sub { @stats = @_; $done = 1 },
-);
+   is( $server_stream, "STAT path/to$CRLF", 'STAT command on dir parsed' );
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   $S2->syswrite( "211-Status of path/to$CRLF" );
+   $S2->syswrite( "211-drwxr-xr-x   2 user     user            0 Feb  1  2005 .$CRLF" );
+   $S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 file$CRLF" );
+   $S2->syswrite( "211--rw-r--r--   1 user     user          200 Feb  3  2005 other$CRLF" );
+   $S2->syswrite( "211 End of status$CRLF" );
 
-is( $server_stream, "STAT path/to/file$CRLF", 'STAT command parsed' );
+   wait_for { $f->is_ready };
 
-$S2->syswrite( "211-Status of path/to/file$CRLF" );
-$S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 path/to/file$CRLF" );
-$S2->syswrite( "211 End of status$CRLF" );
+   @stats = $f->get;
+   is_deeply( \@stats,
+              [ { name  => ".", 
+                  type  => "d",
+                  size  => undef,
+                  mtime => 1107216000,
+                  mode  => 040755 },
+                { name  => "file", 
+                  type  => "f",
+                  size  => 100,
+                  mtime => 1107302400,
+                  mode  => 0100644 },
+                { name  => "other", 
+                  type  => "f",
+                  size  => 200,
+                  mtime => 1107388800,
+                  mode  => 0100644 } ],
+              '@stats after 211 on dir parsed' );
+}
 
-wait_for { $done };
+# Legacy callbacks
+{
+   my $done;
+   my @stats;
 
-is( $done, 1, '$done after 211 parsed' );
-is_deeply( \@stats,
-           [ { name  => "path/to/file", 
-               type  => "f",
-               size  => 100,
-               mtime => 1107302400,
-               mode  => 0100644 } ],
-           '@stats after 211 parsed' );
+   $ftp->stat(
+      path => "path/to/file",
+      on_stat => sub { @stats = @_; $done = 1 },
+   );
 
-$done = 0;
+   my $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-$ftp->stat_parsed(
-   path => "path/to",
-   on_stat => sub { @stats = @_; $done = 1 },
-);
+   is( $server_stream, "STAT path/to/file$CRLF", 'STAT command' );
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   $S2->syswrite( "211-Status of path/to/file$CRLF" );
+   $S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 path/to/file$CRLF" );
+   $S2->syswrite( "211 End of status$CRLF" );
 
-is( $server_stream, "STAT path/to$CRLF", 'STAT command on dir parsed' );
+   wait_for { $done };
 
-$S2->syswrite( "211-Status of path/to$CRLF" );
-$S2->syswrite( "211-drwxr-xr-x   2 user     user            0 Feb  1  2005 .$CRLF" );
-$S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 file$CRLF" );
-$S2->syswrite( "211--rw-r--r--   1 user     user          200 Feb  3  2005 other$CRLF" );
-$S2->syswrite( "211 End of status$CRLF" );
+   is( $done, 1, '$done after 211' );
+   is_deeply( \@stats,
+              [ '-rw-r--r--   1 user     user          100 Feb  2  2005 path/to/file' ],
+              '@stats after 211' );
 
-wait_for { $done };
+   $done = 0;
 
-is( $done, 1, '$done after 211 on dir parsed' );
-is_deeply( \@stats,
-           [ { name  => ".", 
-               type  => "d",
-               size  => undef,
-               mtime => 1107216000,
-               mode  => 040755 },
-             { name  => "file", 
-               type  => "f",
-               size  => 100,
-               mtime => 1107302400,
-               mode  => 0100644 },
-             { name  => "other", 
-               type  => "f",
-               size  => 200,
-               mtime => 1107388800,
-               mode  => 0100644 } ],
-           '@stats after 211 on dir parsed' );
+   $ftp->stat(
+      path => "path/to",
+      on_stat => sub { @stats = @_; $done = 1 },
+   );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "STAT path/to$CRLF", 'STAT command on dir' );
+
+   $S2->syswrite( "211-Status of path/to$CRLF" );
+   $S2->syswrite( "211-drwxr-xr-x   2 user     user            0 Feb  1  2005 .$CRLF" );
+   $S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 file$CRLF" );
+   $S2->syswrite( "211--rw-r--r--   1 user     user          200 Feb  3  2005 other$CRLF" );
+   $S2->syswrite( "211 End of status$CRLF" );
+
+   wait_for { $done };
+
+   is( $done, 1, '$done after 211 on dir' );
+   is_deeply( \@stats,
+              [ 'drwxr-xr-x   2 user     user            0 Feb  1  2005 .',
+                '-rw-r--r--   1 user     user          100 Feb  2  2005 file',
+                '-rw-r--r--   1 user     user          200 Feb  3  2005 other' ],
+              '@stats after 211 on dir' );
+
+   $done = 0;
+
+   $ftp->stat_parsed(
+      path => "path/to/file",
+      on_stat => sub { @stats = @_; $done = 1 },
+   );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "STAT path/to/file$CRLF", 'STAT command parsed' );
+
+   $S2->syswrite( "211-Status of path/to/file$CRLF" );
+   $S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 path/to/file$CRLF" );
+   $S2->syswrite( "211 End of status$CRLF" );
+
+   wait_for { $done };
+
+   is( $done, 1, '$done after 211 parsed' );
+   is_deeply( \@stats,
+              [ { name  => "path/to/file", 
+                  type  => "f",
+                  size  => 100,
+                  mtime => 1107302400,
+                  mode  => 0100644 } ],
+              '@stats after 211 parsed' );
+
+   $done = 0;
+
+   $ftp->stat_parsed(
+      path => "path/to",
+      on_stat => sub { @stats = @_; $done = 1 },
+   );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "STAT path/to$CRLF", 'STAT command on dir parsed' );
+
+   $S2->syswrite( "211-Status of path/to$CRLF" );
+   $S2->syswrite( "211-drwxr-xr-x   2 user     user            0 Feb  1  2005 .$CRLF" );
+   $S2->syswrite( "211--rw-r--r--   1 user     user          100 Feb  2  2005 file$CRLF" );
+   $S2->syswrite( "211--rw-r--r--   1 user     user          200 Feb  3  2005 other$CRLF" );
+   $S2->syswrite( "211 End of status$CRLF" );
+
+   wait_for { $done };
+
+   is( $done, 1, '$done after 211 on dir parsed' );
+   is_deeply( \@stats,
+              [ { name  => ".", 
+                  type  => "d",
+                  size  => undef,
+                  mtime => 1107216000,
+                  mode  => 040755 },
+                { name  => "file", 
+                  type  => "f",
+                  size  => 100,
+                  mtime => 1107302400,
+                  mode  => 0100644 },
+                { name  => "other", 
+                  type  => "f",
+                  size  => 200,
+                  mtime => 1107388800,
+                  mode  => 0100644 } ],
+              '@stats after 211 on dir parsed' );
+}
 
 done_testing;

@@ -9,7 +9,7 @@ my $build = Module::Build->new(
       'Exporter' => '5.57',
       'IO::Async' => '0.30',
       'IO::Async::OS' => 0,
-      'IO::Async::Protocol::Stream' => '0.34',
+      'IO::Async::Stream' => '0.59',
       'File::Listing' => 0,
    },
    build_requires => {

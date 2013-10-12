@@ -19,42 +19,72 @@ testing_loop( $loop );
 
 my ( $S1, $S2 ) = IO::Async::OS->socketpair() or die "Cannot create socket pair - $!";
 
-my $ftp = Net::Async::FTP->new(
-   transport => IO::Async::Stream->new( handle => $S1 ),
-);
+my $ftp = Net::Async::FTP->new( handle => $S1 );
 
 $loop->add( $ftp );
 
 # We won't log in.. our pseudo-server will just accept any command
 
-my $done;
-my $data;
+# ->retr future
+{
+   my $f = $ftp->retr(
+      path => "get/this",
+   );
 
-$ftp->retr(
-   path => "get/this",
-   on_data => sub { $data = shift; $done = 1; },
-);
+   my $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-my $server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   is( $server_stream, "PASV$CRLF", 'PASV preceeds RETR' );
 
-is( $server_stream, "PASV$CRLF", 'PASV preceeds RETR' );
+   my $D = accept_dataconn( $S2 );
 
-my $D = accept_dataconn( $S2 );
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   is( $server_stream, "RETR get/this$CRLF", 'RETR command' );
 
-is( $server_stream, "RETR get/this$CRLF", 'RETR command' );
+   $D->syswrite( "Here is my file content\n" );
+   $D->close;
 
-$D->syswrite( "Here is my file content\n" );
-$D->close;
+   $S2->syswrite( "226 Closing data connection$CRLF" );
 
-$S2->syswrite( "226 Closing data connection$CRLF" );
+   wait_for { $f->is_ready };
 
-wait_for { $done };
+   my $data = $f->get;
+   is( $data, "Here is my file content\n", '$data after 226' );
+}
 
-is( $done, 1, '$done after 226' );
-is( $data, "Here is my file content\n", '$data after 226' );
+# Legacy callbacks
+{
+   my $done;
+   my $data;
+
+   $ftp->retr(
+      path => "get/this",
+      on_data => sub { $data = shift; $done = 1; },
+   );
+
+   my $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "PASV$CRLF", 'PASV preceeds RETR' );
+
+   my $D = accept_dataconn( $S2 );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "RETR get/this$CRLF", 'RETR command' );
+
+   $D->syswrite( "Here is my file content\n" );
+   $D->close;
+
+   $S2->syswrite( "226 Closing data connection$CRLF" );
+
+   wait_for { $done };
+
+   is( $done, 1, '$done after 226' );
+   is( $data, "Here is my file content\n", '$data after 226' );
+}
 
 done_testing;

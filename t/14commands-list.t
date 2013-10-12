@@ -25,9 +25,7 @@ testing_loop( $loop );
 
 my ( $S1, $S2 ) = IO::Async::OS->socketpair() or die "Cannot create socket pair - $!";
 
-my $ftp = Net::Async::FTP->new(
-   transport => IO::Async::Stream->new( handle => $S1 ),
-);
+my $ftp = Net::Async::FTP->new( handle => $S1 );
 
 $loop->add( $ftp );
 
@@ -37,134 +35,261 @@ my $list_response = "drwxr-xr-x   2 user     user            0 Feb  1  2005 .$CR
                     "-rw-r--r--   1 user     user          100 Feb  2  2005 file$CRLF" .
                     "-rw-r--r--   1 user     user          200 Feb  3  2005 other$CRLF";
 
-my $done;
-my $list;
+# ->list futures
+{
+   my $f;
 
-$ftp->list(
-   path => "some/dir",
-   on_list => sub { $list = shift; $done = 1; },
-);
+   $f = $ftp->list(
+      path => "some/dir",
+   );
 
-my $server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   my $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-is( $server_stream, "PASV$CRLF", 'PASV preceeds LIST' );
+   is( $server_stream, "PASV$CRLF", 'PASV preceeds LIST' );
 
-my $D = accept_dataconn( $S2 );
+   my $D = accept_dataconn( $S2 );
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-is( $server_stream, "LIST some/dir$CRLF", 'LIST command' );
+   is( $server_stream, "LIST some/dir$CRLF", 'LIST command' );
 
-$D->syswrite( $list_response );
-$D->close;
+   $D->syswrite( $list_response );
+   $D->close;
 
-$S2->syswrite( "226 Closing data connection$CRLF" );
+   $S2->syswrite( "226 Closing data connection$CRLF" );
 
-wait_for { $done };
+   wait_for { $f->is_ready };
 
-is( $done, 1, '$done after 226' );
-is( $list, "drwxr-xr-x   2 user     user            0 Feb  1  2005 .$CRLF" .
-           "-rw-r--r--   1 user     user          100 Feb  2  2005 file$CRLF" .
-           "-rw-r--r--   1 user     user          200 Feb  3  2005 other$CRLF",
-    '$list after 226' );
+   my $list = $f->get;
+   is( $list, "drwxr-xr-x   2 user     user            0 Feb  1  2005 .$CRLF" .
+              "-rw-r--r--   1 user     user          100 Feb  2  2005 file$CRLF" .
+              "-rw-r--r--   1 user     user          200 Feb  3  2005 other$CRLF",
+       '$list after 226' );
 
-my @files;
-$done = 0;
+   $f = $ftp->list_parsed(
+      path => "some/dir",
+   );
 
-$ftp->list_parsed(
-   path => "some/dir",
-   on_list => sub { @files = @_; $done = 1; },
-);
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   is( $server_stream, "PASV$CRLF", 'PASV preceeds LIST' );
 
-is( $server_stream, "PASV$CRLF", 'PASV preceeds LIST' );
+   $D = accept_dataconn( $S2 );
 
-$D = accept_dataconn( $S2 );
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   is( $server_stream, "LIST some/dir$CRLF", 'LIST command' );
 
-is( $server_stream, "LIST some/dir$CRLF", 'LIST command' );
+   $D->syswrite( $list_response );
+   $D->close;
 
-$D->syswrite( $list_response );
-$D->close;
+   $S2->syswrite( "226 Closing data connection$CRLF" );
 
-$S2->syswrite( "226 Closing data connection$CRLF" );
+   wait_for { $f->is_ready };
 
-wait_for { $done };
+   my @files = $f->get;
+   is_deeply( \@files,
+              [
+                 { name => "file",  type => "f", size => 100, mtime => 1107302400, mode => 0100644 },
+                 { name => "other", type => "f", size => 200, mtime => 1107388800, mode => 0100644 },
+              ],
+              '@files after 226' );
+}
 
-is( $done, 1, '$done after 226' );
-is_deeply( \@files,
-           [
-              { name => "file",  type => "f", size => 100, mtime => 1107302400, mode => 0100644 },
-              { name => "other", type => "f", size => 200, mtime => 1107388800, mode => 0100644 },
-           ],
-           '@files after 226' );
+# ->nlst futures
+{
+   my $f;
 
-$done = 0;
-my $names;
+   $f = $ftp->nlst(
+      path => "other/dir",
+   );
 
-$ftp->nlst(
-   path => "other/dir",
-   on_list => sub { $names = shift; $done = 1; },
-);
+   my $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   is( $server_stream, "PASV$CRLF", 'PASV preceeds NLST' );
 
-is( $server_stream, "PASV$CRLF", 'PASV preceeds NLST' );
+   my $D = accept_dataconn( $S2 );
 
-$D = accept_dataconn( $S2 );
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   is( $server_stream, "NLST other/dir$CRLF", 'NLST command' );
 
-is( $server_stream, "NLST other/dir$CRLF", 'NLST command' );
+   $D->syswrite( "foo${CRLF}bar${CRLF}splot${CRLF}" );
+   $D->close;
 
-$D->syswrite( "foo${CRLF}bar${CRLF}splot${CRLF}" );
-$D->close;
+   $S2->syswrite( "226 Closing data connection$CRLF" );
 
-$S2->syswrite( "226 Closing data connection$CRLF" );
+   wait_for { $f->is_ready };
 
-wait_for { $done };
+   my $names = $f->get;
+   is( $names, "foo${CRLF}bar${CRLF}splot${CRLF}", '$names after 226' );
 
-is( $done, 1, '$done after 226' );
-is( $names, "foo${CRLF}bar${CRLF}splot${CRLF}", '$names after 226' );
+   $f = $ftp->namelist(
+      path => "other/dir",
+   );
 
-$done = 0;
-my @names;
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-$ftp->namelist(
-   path => "other/dir",
-   on_names => sub { @names = @_; $done = 1; },
-);
+   is( $server_stream, "PASV$CRLF", 'PASV preceeds NLST' );
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   $D = accept_dataconn( $S2 );
 
-is( $server_stream, "PASV$CRLF", 'PASV preceeds NLST' );
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
 
-$D = accept_dataconn( $S2 );
+   is( $server_stream, "NLST other/dir$CRLF", 'NLST command' );
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+   $D->syswrite( "foo${CRLF}bar${CRLF}splot${CRLF}" );
+   $D->close;
 
-is( $server_stream, "NLST other/dir$CRLF", 'NLST command' );
+   $S2->syswrite( "226 Closing data connection$CRLF" );
 
-$D->syswrite( "foo${CRLF}bar${CRLF}splot${CRLF}" );
-$D->close;
+   wait_for { $f->is_ready };
 
-$S2->syswrite( "226 Closing data connection$CRLF" );
+   my @names = $f->get;
+   is_deeply( \@names,
+              [qw( foo bar splot )],
+              '@names after 226' );
+}
 
-wait_for { $done };
+# Legacy callbacks
+{
+   my $done;
+   my $list;
 
-is( $done, 1, '$done after 226' );
-is_deeply( \@names,
-           [qw( foo bar splot )],
-           '@names after 226' );
+   $ftp->list(
+      path => "some/dir",
+      on_list => sub { $list = shift; $done = 1; },
+   );
+
+   my $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "PASV$CRLF", 'PASV preceeds LIST' );
+
+   my $D = accept_dataconn( $S2 );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "LIST some/dir$CRLF", 'LIST command' );
+
+   $D->syswrite( $list_response );
+   $D->close;
+
+   $S2->syswrite( "226 Closing data connection$CRLF" );
+
+   wait_for { $done };
+
+   is( $done, 1, '$done after 226' );
+   is( $list, "drwxr-xr-x   2 user     user            0 Feb  1  2005 .$CRLF" .
+              "-rw-r--r--   1 user     user          100 Feb  2  2005 file$CRLF" .
+              "-rw-r--r--   1 user     user          200 Feb  3  2005 other$CRLF",
+       '$list after 226' );
+
+   my @files;
+   $done = 0;
+
+   $ftp->list_parsed(
+      path => "some/dir",
+      on_list => sub { @files = @_; $done = 1; },
+   );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "PASV$CRLF", 'PASV preceeds LIST' );
+
+   $D = accept_dataconn( $S2 );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "LIST some/dir$CRLF", 'LIST command' );
+
+   $D->syswrite( $list_response );
+   $D->close;
+
+   $S2->syswrite( "226 Closing data connection$CRLF" );
+
+   wait_for { $done };
+
+   is( $done, 1, '$done after 226' );
+   is_deeply( \@files,
+              [
+                 { name => "file",  type => "f", size => 100, mtime => 1107302400, mode => 0100644 },
+                 { name => "other", type => "f", size => 200, mtime => 1107388800, mode => 0100644 },
+              ],
+              '@files after 226' );
+
+   $done = 0;
+   my $names;
+
+   $ftp->nlst(
+      path => "other/dir",
+      on_list => sub { $names = shift; $done = 1; },
+   );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "PASV$CRLF", 'PASV preceeds NLST' );
+
+   $D = accept_dataconn( $S2 );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "NLST other/dir$CRLF", 'NLST command' );
+
+   $D->syswrite( "foo${CRLF}bar${CRLF}splot${CRLF}" );
+   $D->close;
+
+   $S2->syswrite( "226 Closing data connection$CRLF" );
+
+   wait_for { $done };
+
+   is( $done, 1, '$done after 226' );
+   is( $names, "foo${CRLF}bar${CRLF}splot${CRLF}", '$names after 226' );
+
+   $done = 0;
+   my @names;
+
+   $ftp->namelist(
+      path => "other/dir",
+      on_names => sub { @names = @_; $done = 1; },
+   );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "PASV$CRLF", 'PASV preceeds NLST' );
+
+   $D = accept_dataconn( $S2 );
+
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $S2 => $server_stream;
+
+   is( $server_stream, "NLST other/dir$CRLF", 'NLST command' );
+
+   $D->syswrite( "foo${CRLF}bar${CRLF}splot${CRLF}" );
+   $D->close;
+
+   $S2->syswrite( "226 Closing data connection$CRLF" );
+
+   wait_for { $done };
+
+   is( $done, 1, '$done after 226' );
+   is_deeply( \@names,
+              [qw( foo bar splot )],
+              '@names after 226' );
+}
 
 done_testing;

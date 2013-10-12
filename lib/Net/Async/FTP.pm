@@ -7,12 +7,12 @@ package Net::Async::FTP;
 
 use strict;
 use warnings;
-use base qw( IO::Async::Protocol::Stream );
-IO::Async::Protocol::Stream->VERSION( '0.34' );
+use base qw( IO::Async::Stream );
+IO::Async::Stream->VERSION( '0.59' );
 
 use Carp;
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 use Socket qw( AF_INET SOCK_STREAM inet_aton pack_sockaddr_in );
 
@@ -34,31 +34,20 @@ C<Net::Async::FTP> - use FTP with C<IO::Async>
 
  $ftp->connect(
     host => "ftp.example.com",
-
-    on_connected => sub {
-       $ftp->login(
-          user => "username",
-          pass => "password",
-
-          on_login => sub {
-             $ftp->retr(
-                path => "README.txt",
-
-                on_data => sub {
-                   my ( $data ) = @_;
-                   print "README.txt says:\n";
-                   print $data;
-                   $loop->loop_stop;
-                },
-             );
-          },
-          on_error => sub { die shift() },
-       );
-    },
-    on_error => sub { die shift() },
- );
-
- $loop->loop_forever;
+ )->then( sub {
+    $ftp->login(
+       user => "username",
+       pass => "password",
+    )
+ })->then( sub {
+    $ftp->retr(
+       path => "README.txt",
+    )
+ })->then( sub {
+    my ( $data ) = @_;
+    print "README.txt says:\n";
+    print $data;
+ })->get;
 
 =head1 DESCRIPTION
 
@@ -122,7 +111,7 @@ sub on_read
 
 =cut
 
-=head2 $ftp->connect( %args )
+=head2 $ftp->connect( %args ) ==> ()
 
 Connects to the FTP server. Takes the following arguments:
 
@@ -144,13 +133,14 @@ returns if not supplied.
 
 =item on_connected => CODE
 
-Continuation to call when connection is successful
+Optional when returning a Future. Continuation to call when connection is
+successful.
 
  $on_connected->()
 
 =item on_error => CODE
 
-Continuation to call on an error
+Optional when returning a Future. Continuation to call on an error.
 
  $on_error->( $message )
 
@@ -163,27 +153,22 @@ sub connect
    my $self = shift;
    my %args = @_;
 
-   my $on_connected = delete $args{on_connected};
-   ref $on_connected eq "CODE" or croak "Expected 'on_connected' as a CODE reference";
+   my $on_connected = $args{on_connected} or defined wantarray or croak "Expected 'on_connected'";
+   my $on_error     = $args{on_error}     or defined wantarray or croak "Expected 'on_error'";
 
-   my $on_error = $args{on_error};
-   ref $on_error eq "CODE" or croak "Expected 'on_error' as a CODE reference";
-
-   $self->SUPER::connect(
+   my $f = $self->SUPER::connect(
       service => "ftp",
       %args,
+   )->then( sub {
+      # TODO: This is a bit messy. Install an initial on_read handler for
+      # the connect messages, by sending an "empty string" command
+      $self->do_command( undef, [ 220 ] );
+   });
 
-      on_connected => sub {
-         # TODO: This is a bit messy. Install an initial on_read handler for
-         # the connect messages, by sending an "empty string" command
-         $self->do_command( undef,
-            220 => $on_connected,
-         );
-      },
+   $f->on_done( $on_connected ) if $on_connected;
+   $f->on_fail( $on_error )     if $on_error;
 
-      on_resolve_error => $on_error,
-      on_connect_error => sub { $on_error->( "Cannot connect" ) },
-   );
+   return $f;
 }
 
 my %NUMTYPES = (
@@ -194,12 +179,13 @@ my %NUMTYPES = (
    5 => "err",
 );
 
-sub _build_codemap_onread
+sub _build_future_onread
 {
    my $self = shift;
-   my ( $command, $codemap ) = @_;
+   my ( $command, $f, $accept, %continue ) = @_;
 
    my @extralines;
+   my %accept = map { $_ => 1 } @$accept;
 
    sub {
       my ( $self, $buffref, $closed ) = @_;
@@ -207,32 +193,34 @@ sub _build_codemap_onread
       return 0 unless $$buffref =~ s/^(.*)$CRLF//;
       my $line = $1;
 
-      if( $line =~ m/^(\d\d\d) +(.*)$/ ) {
+      if( $line =~ m/^(\d{3}) +(.*)$/ ) {
          my ( $number, $message ) = ( $1, $2 );
          my $numtype = $NUMTYPES{substr($number, 0, 1)};
 
-         my $cb = $codemap->{$number} || $codemap->{$numtype};
-
-         if( $cb ) {
-            my $ret = $cb->( $number, $message, @extralines );
-            undef @extralines;
-
-            # If it's a 1xx command, we're not finished yet
-            return 1 if $numtype eq "info";
-
-            return $ret if ref $ret eq "CODE";
-            return undef;
+         if( $accept{$number} || $accept{$numtype} ) {
+            if( $numtype eq "info" ) {
+               print STDERR "TODO: info $number\n";
+            }
+            else {
+               $f->done( $number, $message, @extralines );
+               return undef;
+            }
          }
-         elsif( $numtype ne "info" ) {
-            print STDERR "Unexpected incoming num $number message $message while awaiting response to $command\n";
-            print STDERR "  $_\n" for @extralines;
+         elsif( my $cb = $continue{$number} ) {
+            return $cb->( $f, $number, $message );
+         }
+         elsif( $numtype eq "err" ) {
+            $f->fail( $message, ftp => $number );
+         }
+         else {
+            print STDERR "Unexpected incoming $number\n";
          }
       }
-      elsif( $line =~ m/^(\d\d\d)-(.*)$/ ) {
+      elsif( $line =~ m/^(\d{3})-(.*)$/ ) {
          push @extralines, $2;
       }
       else {
-         print STDERR "Unparsable incoming line $line\n";
+         print STDERR "Unparseable incoming line $line\n";
       }
 
       return 1;
@@ -242,14 +230,17 @@ sub _build_codemap_onread
 sub do_command
 {
    my $self = shift;
-   my ( $command, %codemap ) = @_;
+   my ( $command, $accept, %continue ) = @_;
 
-   my $on_read = $self->_build_codemap_onread( $command, \%codemap );
+   my $f = $self->loop->new_future;
+   my $on_read = $self->_build_future_onread( $command, $f, $accept, %continue );
 
    my $queue = $self->{req_queue};
    push @$queue, { command => $command, on_read => $on_read };
 
    $self->_do_req_queue;
+
+   return $f;
 }
 
 sub _do_req_queue
@@ -270,28 +261,28 @@ sub _do_req_queue
 sub _connect_dataconn
 {
    my $self = shift;
-   my ( $on_conn, $on_error, $command, $on_conn_codemap ) = @_;
+   my ( $on_conn ) = @_;
 
-   $self->pasv(
-      on_done => sub {
-         my ( $ip, $port ) = @_;
+   $self->do_command( "PASV", [],
+      227 => sub {
+         my ( $f, $num, $message ) = @_;
+         $message =~ m/\((\d+,\d+,\d+,\d+,\d+,\d+)\)/ or
+            return $f->fail( "Did not find (ip,port) in message $message", ftp => $num, $message );
+
+         my ( $ipA, $ipB, $ipC, $ipD, $portHI, $portLO ) = split( m/,/, $1 );
+         my $ip   = "$ipA.$ipB.$ipC.$ipD";
+         my $port = $portHI*256 + $portLO;
 
          my $sinaddr = pack_sockaddr_in( $port, inet_aton( $ip ) );
 
          my $loop = $self->get_loop;
-         $loop->connect(
+         my $connect_f = $loop->connect(
             addr => [ AF_INET, SOCK_STREAM, 0, $sinaddr ],
-
-            on_connected => $on_conn,
-            on_connect_error => sub { $on_error->( "Cannot connect" ) },
          );
+         $connect_f->on_fail( $f );
 
-         $self->write( "$command$CRLF" );
-
-         return $self->_build_codemap_onread( $command, $on_conn_codemap );
+         return $on_conn->( $f, $connect_f );
       },
-
-      on_error => $on_error,
    );
 }
 
@@ -300,37 +291,39 @@ sub _connect_dataconn
 sub _do_command_collect_dataconn
 {
    my $self = shift;
-   my ( $command, $on_data, $on_error ) = @_;
-
-   my $data;
-   my $got_226;
+   my ( $command ) = @_;
 
    $self->_connect_dataconn(
       sub {
-         my ( $sock ) = @_;
+         my ( $f, $connect_f ) = @_;
 
+         my $data;
          my $dataconn = IO::Async::Stream->new(
-            handle => $sock,
             on_read => sub {
-               my ( undef, $buffref, $closed ) = @_;
+               my ( $self, $buffref, $closed ) = @_;
                return 0 unless $closed;
                $data = $$buffref;
-               $got_226 and $on_data->( $data );
+               $self->close;
                return 0;
             },
          );
+         $self->add_child( $dataconn );
 
-         my $loop = $self->get_loop;
-         $loop->add( $dataconn );
-      },
-      $on_error,
-      $command,
-      {
-         '226' => sub {
-            $got_226 = 1;
-            defined $data and $on_data->( $data );
-         },
-         err   => sub { $on_error->( "$_[0] ($_[1])" ) },
+         $connect_f->on_done( sub {
+            $dataconn->configure( read_handle => $_[0] );
+         });
+
+         $self->write( "$command$CRLF" );
+
+         my $cmd_f = $f->new;
+         my $on_read = $self->_build_future_onread( $command, $cmd_f, [ 226 ] );
+
+         my $done_f = Future->needs_all( $dataconn->new_close_future, $cmd_f )
+            ->on_done( sub { $f->done( $data ) })
+            ->on_fail( $f );
+         $f->on_cancel( $done_f );
+
+         return $on_read;
       },
    );
 }
@@ -338,36 +331,41 @@ sub _do_command_collect_dataconn
 sub _do_command_send_dataconn
 {
    my $self = shift;
-   my ( $command, $data, $on_done, $on_error ) = @_;
-
-   my $dataconn;
+   my ( $command, $data ) = @_;
 
    $self->_connect_dataconn(
       sub {
-         my ( $sock ) = @_;
+         my ( $f, $connect_f ) = @_;
 
-         $dataconn = IO::Async::Stream->new(
-            handle => $sock,
-            on_read => sub {},
+         my $dataconn = IO::Async::Stream->new;
+         $self->add_child( $dataconn );
+
+         $connect_f->on_done( sub {
+            $dataconn->configure( write_handle => $_[0] );
+         });
+
+         $self->write( "$command$CRLF" );
+
+         my $cmd_f = $f->new;
+         my $on_read = $self->_build_future_onread( $command, $cmd_f, [ 226 ],
+            150 => sub {
+               $dataconn->write( $data );
+               $dataconn->close_when_empty;
+               return 1;
+            },
          );
 
-         my $loop = $self->get_loop;
-         $loop->add( $dataconn );
-      },
-      $on_error,
-      $command,
-      {
-         '150' => sub {
-            $dataconn->write( $data );
-            $dataconn->close_when_empty;
-         },
-         '226' => sub { $on_done->() },
-         err   => sub { $on_error->( "$_[0] ($_[1])" ) },
+         my $done_f = Future->needs_all( $dataconn->new_close_future, $cmd_f )
+            ->on_done( sub { $f->done } )
+            ->on_fail( $f );
+         $f->on_cancel( $done_f );
+
+         return $on_read;
       },
    );
 }
 
-=head2 $ftp->login( %args )
+=head2 $ftp->login( %args ) ==> ()
 
 Sends a C<USER> and optionally C<PASS> command. Takes the following arguments:
 
@@ -383,13 +381,13 @@ Password for the C<PASS> command if required
 
 =item on_login => CODE
 
-Continuation to invoke on successful login.
+Optional when returning a future. Continuation to invoke on successful login.
 
  $on_login->()
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional when returning a future. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -404,24 +402,22 @@ sub login
 
    my $user = $args{user} or croak "Expected 'user'";
 
-   my $on_login = $args{on_login} or croak "Expected 'on_login'";
-   my $on_error = $args{on_error} or croak "Expected 'on_error'";
+   my $on_login = $args{on_login} or defined wantarray or croak "Expected 'on_login'";
+   my $on_error = $args{on_error} or defined wantarray or croak "Expected 'on_error'";
 
-   $self->do_command( "USER $user",
-      331 => sub {
+   my $f = $self->do_command( "USER $user", [ 331 ] )
+      ->then( sub {
          exists $args{pass} or return $on_error->( "No password" );
-         $self->do_command( "PASS $args{pass}",
-            230 => sub {
-               $on_login->();
-            },
-            err => sub { $on_error->( "$_[0] ($_[1])" ) },
-         );
-      },
-      err => sub { $on_error->( "$_[0] ($_[1])" ) },
-   );
+         $self->do_command( "PASS $args{pass}", [ 230 ] )
+      });
+
+   $f->on_done( $on_login ) if $on_login;
+   $f->on_fail( $on_error ) if $on_error;
+
+   return $f;
 }
 
-=head2 $ftp->rename( %args )
+=head2 $ftp->rename( %args ) ==> ()
 
 Renames a file on the remote server. Takes the following arguments
 
@@ -437,13 +433,13 @@ Desired new path for the file
 
 =item on_done => CODE
 
-Continuation to invoke on success.
+Optional when returning a future. Continuation to invoke on success.
 
  $on_done->()
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -462,24 +458,23 @@ sub rename
    my $newpath = $args{newpath};
    defined $newpath or croak "Expected 'newpath'";
 
-   my $on_done = $args{on_done};
-   ref $on_done eq "CODE" or croak "Expected 'on_done' as CODE reference";
+   my $on_done = $args{on_done} or defined wantarray or croak "Expected 'on_done'";
 
    my $on_error = $args{on_error};
-   $on_error ||= sub { die "Error $_[0] during rename" };
+   $on_error ||= sub { die "Error $_[0] during rename" } if !defined wantarray;
 
-   $self->do_command( "RNFR $oldpath",
-      '350' => sub {
-         $self->do_command( "RNTO $newpath",
-            ok  => sub { $on_done->() },
-            err => sub { $on_error->( "$_[0] ($_[1])" ) },
-         );
-      },
-      'err' => sub { $on_error->( "$_[0] ($_[1])" ) },
-   );
+   my $f = $self->do_command( "RNFR $oldpath", [ 350 ] )
+      ->then( sub {
+         $self->do_command( "RNTO $newpath", [ 'ok' ] )
+      });
+
+   $f->on_done( $on_done  ) if $on_done;
+   $f->on_fail( $on_error ) if $on_error;
+
+   return $f;
 }
 
-=head2 $ftp->dele( %args )
+=head2 $ftp->dele( %args ) ==> ()
 
 Deletes a file on the remote server. Takes the following arguments
 
@@ -491,13 +486,13 @@ Path to file to delete
 
 =item on_done => CODE
 
-Continuation to invoke on success.
+Optional when returning a future. Continuation to invoke on success.
 
  $on_done->()
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -513,19 +508,20 @@ sub dele
    my $path = $args{path};
    defined $path or croak "Expected 'path'";
 
-   my $on_done = $args{on_done};
-   ref $on_done eq "CODE" or croak "Expected 'on_done' as CODE reference";
+   my $on_done = $args{on_done} or defined wantarray or croak "Expected 'on_done'";
 
    my $on_error = $args{on_error};
-   $on_error ||= sub { die "Error $_[0] during RETR" };
+   $on_error ||= sub { die "Error $_[0] during RETR" } if !defined wantarray;
 
-   $self->do_command( "DELE $path",
-      ok  => sub { $on_done->() },
-      err => sub { $on_error->( "$_[0] ($_[1])" ) },
-   );
+   my $f = $self->do_command( "DELE $path", [ 'ok' ] );
+
+   $f->on_done( $on_done  ) if $on_done;
+   $f->on_fail( $on_error ) if $on_error;
+
+   return $f;
 }
 
-=head2 $ftp->list( %args )
+=head2 $ftp->list( %args ) ==> $list
 
 Runs a C<LIST> command on a path on the remote server; which requests details
 on the file, or contents of the directory. Takes the following arguments
@@ -538,14 +534,14 @@ Path to C<LIST>
 
 =item on_list => CODE
 
-Continuation to invoke on success. Is passed a list of lines from the C<LIST>
-result in a single string.
+Optional when returning a future. Continuation to invoke on success. Is passed
+a list of lines from the C<LIST> result in a single string.
 
  $on_list->( $list )
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -562,19 +558,22 @@ sub list
 
    my $path = $args{path};
 
-   my $on_list = $args{on_list};
-   ref $on_list eq "CODE" or croak "Expected 'on_list' as CODE reference";
+   my $on_list = $args{on_list} or defined wantarray or croak "Expected 'on_list'";
 
    my $on_error = $args{on_error};
-   $on_error ||= sub { die "Error $_[0] during LIST" };
+   $on_error ||= sub { die "Error $_[0] during LIST" } if !defined wantarray;
 
-   $self->_do_command_collect_dataconn(
+   my $f = $self->_do_command_collect_dataconn(
       "LIST" . ( defined $path ? " $path" : "" ),
-      $on_list, $on_error
    );
+
+   $f->on_done( $on_list  ) if $on_list;
+   $f->on_fail( $on_error ) if $on_error;
+
+   return $f;
 }
 
-=head2 $ftp->list_parsed( %args )
+=head2 $ftp->list_parsed( %args ) ==> @list
 
 Runs a C<LIST> command on a path on the remote server; and parse the result
 lines. Takes the following arguments
@@ -587,14 +586,14 @@ Path to C<LIST>
 
 =item on_list => CODE
 
-Continuation to invoke on success. Is passed a list of files from the C<LIST>
-result, one line per element.
+Optional when returning a future. Continuation to invoke on success. Is passed
+a list of files from the C<LIST> result, one line per element.
 
  $on_list->( @list )
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -634,27 +633,32 @@ sub list_parsed
    my $self = shift;
    my %args = @_;
 
-   my $on_list = $args{on_list};
-   ref $on_list eq "CODE" or croak "Expected 'on_list' as CODE reference";
+   my $on_list = $args{on_list} or defined wantarray or croak "Expected 'on_list'";
+
+   my $on_error = $args{on_error};
+   $on_error ||= sub { die "Error $_[0] during LIST" } if !defined wantarray;
 
    require File::Listing;
 
-   $self->list(
+   my $f = $self->list(
       path => $args{path},
-      on_list => sub {
-         my ( $list ) = @_;
-         my @files = File::Listing::parse_dir( $list );
+   )->then( sub {
+      my ( $list ) = @_;
+      my @files = File::Listing::parse_dir( $list );
 
-         # We want to present a list of HASH refs, as they're nicer to work with
-         @files = map { my %h; @h{qw( name type size mtime mode )} = @$_; \%h } @files;
+      # We want to present a list of HASH refs, as they're nicer to work with
+      @files = map { my %h; @h{qw( name type size mtime mode )} = @$_; \%h } @files;
 
-         $on_list->( @files );
-      },
-      on_error => $args{on_error},
-   );
+      return Future->new->done( @files );
+   });
+
+   $f->on_done( $on_list  ) if $on_list;
+   $f->on_fail( $on_error ) if $on_error;
+
+   return $f;
 }
 
-=head2 $ftp->nlist( %args )
+=head2 $ftp->nlist( %args ) ==> $list
 
 Runs a C<NLST> command on a path on the remote server; which requests a list
 of filenames in a directory. Takes the following arguments
@@ -667,14 +671,14 @@ Path to C<NLST>
 
 =item on_list => CODE
 
-Continuation to invoke on success. Is passed a list of names from the C<NLST>
-result in a single string.
+Optional when returning a future. Continuation to invoke on success. Is passed
+a list of names from the C<NLST> result in a single string.
 
  $on_list->( $list )
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -691,19 +695,22 @@ sub nlst
 
    my $path = $args{path};
 
-   my $on_list = $args{on_list};
-   ref $on_list eq "CODE" or croak "Expected 'on_list' as CODE reference";
+   my $on_list = $args{on_list} or defined wantarray or croak "Expected 'on_list'";
 
    my $on_error = $args{on_error};
-   $on_error ||= sub { die "Error $_[0] during NLST" };
+   $on_error ||= sub { die "Error $_[0] during NLST" } if !defined wantarray;
 
-   $self->_do_command_collect_dataconn(
+   my $f = $self->_do_command_collect_dataconn(
       "NLST" . ( defined $path ? " $path" : "" ),
-      $on_list, $on_error
    );
+
+   $f->on_done( $on_list  ) if $on_list;
+   $f->on_fail( $on_error ) if $on_error;
+
+   return $f;
 }
 
-=head2 $ftp->namelist( %args )
+=head2 $ftp->namelist( %args ) ==> @names
 
 Runs a C<NLST> command on a path on the remote server; which requests a list
 of filenames in a directory. Takes the following arguments
@@ -716,14 +723,14 @@ Path to C<NLST>
 
 =item on_names => CODE
 
-Continuation to invoke on success. Is passed a list of names from the C<NLST>
-result in a list, one name per entry
+Optional when returning a future. Continuation to invoke on success. Is passed
+a list of names from the C<NLST> result in a list, one name per entry
 
  $on_name->( @names )
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -736,47 +743,25 @@ sub namelist
    my $self = shift;
    my %args = @_;
 
-   my $on_names = $args{on_names};
-   ref $on_names eq "CODE" or croak "Expected 'on_names' as CODE reference";
-
-   $self->nlst(
-      path => $args{path},
-      on_list => sub {
-         my ( $list ) = @_;
-         $on_names->( split( m/\r?\n/, $list ) );
-      },
-      on_error => $args{on_error},
-   );
-}
-
-sub pasv
-{
-   my $self = shift;
-   my %args = @_;
-
-   my $on_done = $args{on_done};
-   ref $on_done eq "CODE" or croak "Expected 'on_done' as CODE reference";
+   my $on_names = $args{on_names} or defined wantarray or croak "Expected 'on_names'";
 
    my $on_error = $args{on_error};
-   $on_error ||= sub { die "Error $_[0] during PASV" };
+   $on_error ||= sub { die "Error $_[0] during NLST" } if !defined wantarray;
 
-   $self->do_command( "PASV",
-      227 => sub {
-         my ( $num, $message ) = @_;
-         $message =~ m/\((\d+,\d+,\d+,\d+,\d+,\d+)\)/ or return $on_error->( "Did not find (ip,port) in message $message" );
+   my $f = $self->nlst(
+      path => $args{path},
+   )->then( sub {
+      my ( $list ) = @_;
+      return Future->new->done( split( m/\r?\n/, $list ) );
+   });
 
-         my ( $ipA, $ipB, $ipC, $ipD, $portHI, $portLO ) = split( m/,/, $1 );
+   $f->on_done( $on_names ) if $on_names;
+   $f->on_fail( $on_error ) if $on_error;
 
-         my $ip   = "$ipA.$ipB.$ipC.$ipD";
-         my $port = $portHI*256 + $portLO;
-
-         $on_done->( $ip, $port );
-      },
-      err => sub { $on_error->( "$_[0] ($_[1])" ) },
-   );
+   return $f;
 }
 
-=head2 $ftp->retr( %args )
+=head2 $ftp->retr( %args ) ==> $content
 
 Retrieves a file on the remote server. Takes the following arguments
 
@@ -788,14 +773,14 @@ Path to file to retrieve
 
 =item on_data => CODE
 
-Continuation to invoke on success. Is passed the contents of the file as a
-single string.
+Optional when returning a future. Continuation to invoke on success. Is
+passed the contents of the file as a single string.
 
  $on_data->( $content )
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -811,19 +796,22 @@ sub retr
    my $path = $args{path};
    defined $path or croak "Expected 'path'";
 
-   my $on_data = $args{on_data};
-   ref $on_data eq "CODE" or croak "Expected 'on_data' as CODE reference";
+   my $on_data = $args{on_data} or defined wantarray or croak "Expected 'on_data' as CODE reference";
 
    my $on_error = $args{on_error};
-   $on_error ||= sub { die "Error $_[0] during RETR" };
+   $on_error ||= sub { die "Error $_[0] during RETR" } if !defined wantarray;
 
-   $self->_do_command_collect_dataconn(
+   my $f = $self->_do_command_collect_dataconn(
       "RETR $path",
-      $on_data, $on_error
    );
+
+   $f->on_done( $on_data  ) if $on_data;
+   $f->on_fail( $on_error ) if $on_error;
+
+   return $f;
 }
 
-=head2 $ftp->stat( %args )
+=head2 $ftp->stat( %args ) ==> @stat
 
 Runs a C<STAT> command on a path on the remote server; which requests details
 on the file, or contents of the directory. Takes the following arguments
@@ -836,14 +824,14 @@ Path to C<STAT>
 
 =item on_stat => CODE
 
-Continuation to invoke on success. Is passed a list of lines from the C<STAT>
-result, one line per element.
+Optional when not returning a future. Continuation to invoke on success. Is
+passed a list of lines from the C<STAT> result, one line per element.
 
  $on_stat->( @stat )
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -860,22 +848,24 @@ sub stat
 
    my $path = $args{path}; # optional
 
-   my $on_stat = $args{on_stat};
-   ref $on_stat eq "CODE" or croak "Expected 'on_stat' as CODE reference";
+   my $on_stat = $args{on_stat} or defined wantarray or croak "Expected 'on_stat'";
 
    my $on_error = $args{on_error};
-   $on_error ||= sub { die "Error $_[0] during STAT" };
+   $on_error ||= sub { die "Error $_[0] during STAT" } if !defined wantarray;
 
-   $self->do_command( defined $path ? "STAT $path" : "STAT",
-      '211' => sub {
+   my $f = $self->do_command( defined $path ? "STAT $path" : "STAT", [ 211 ] )
+      ->then( sub {
          my ( $num, $message, $headline, @statlines ) = @_;
-         $on_stat->( @statlines );
-      },
-      'err' => sub { $on_error->( "$_[0] ($_[1])" ) },
-   );
+         return Future->new->done( @statlines );
+      });
+
+   $f->on_done( $on_stat  ) if $on_stat;
+   $f->on_fail( $on_error ) if $on_error;
+
+   return $f;
 }
 
-=head2 $ftp->stat_parsed( %args )
+=head2 $ftp->stat_parsed( %args ) ==> @stat
 
 Runs a C<STAT> command on a path on the remote server; and parse the result
 lines. Takes the following arguments
@@ -888,14 +878,14 @@ Path to C<STAT>
 
 =item on_stat => CODE
 
-Continuation to invoke on success. Is passed a list of lines from the C<STAT>
-result, one line per element.
+Optional when returning a future. Continuation to invoke on success. Is passed
+a list of lines from the C<STAT> result, one line per element.
 
  $on_stat->( @stat )
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -942,69 +932,71 @@ sub stat_parsed
 
    defined $args{path} or croak "Expected 'path'";
 
-   my $on_stat = $args{on_stat};
-   ref $on_stat eq "CODE" or croak "Expected 'on_stat' as CODE reference";
+   my $on_stat = $args{on_stat} or defined wantarray or croak "Expected 'on_stat'";
 
    require File::Listing;
 
    my $on_error = $args{on_error};
-   $on_error ||= sub { die "Error $_[0] during stat_parsed" };
+   $on_error ||= sub { die "Error $_[0] during stat_parsed" } if !defined wantarray;
 
-   $self->stat(
+   my $f = $self->stat(
       path => $args{path},
-      on_stat => sub {
-         my @statlines = @_;
+   )->then( sub {
+      my @statlines = @_;
 
-         my @pstats;
+      my @pstats;
 
-         if( @statlines > 1 ) {
-            # path is a directory. In that case, look for the . item
-            # This would be easy only File::Listing::parse_dir WILL
-            # ignore it and we don't get a say in the matter.
-            # In this case, we'll do a bit of cheating. We'll look for the
-            # "." line ourselves, mangle its name to "DIR", and mangle it
-            # back on the other end.
+      if( @statlines > 1 ) {
+         # path is a directory. In that case, look for the . item
+         # This would be easy only File::Listing::parse_dir WILL
+         # ignore it and we don't get a say in the matter.
+         # In this case, we'll do a bit of cheating. We'll look for the
+         # "." line ourselves, mangle its name to "DIR", and mangle it
+         # back on the other end.
 
-            my @lines_with_cwd;
-            my @lines_without_cwd;
-            
-            foreach ( @statlines ) {
-               m/ \.$/ ? ( push @lines_with_cwd, $_ ) : ( push @lines_without_cwd, $_ );
-            }
+         my @lines_with_cwd;
+         my @lines_without_cwd;
 
-            @lines_with_cwd == 1 or
-               return $on_error->( "Did not find '.' in LIST output on directory $args{path}" );
-
-            my $l = $lines_with_cwd[0];
-            $l =~ s/ \.$/ DIR/;
-
-            ( my $cwdstat ) = File::Listing::parse_dir( $l );
-
-            $cwdstat->[0] eq "DIR" or
-               return $on_error->( "Parsed listing did not contain DIR as the name like we expected for $args{path}" );
-
-            $cwdstat->[0] = ".";
-
-            @pstats = ( $cwdstat, File::Listing::parse_dir( \@lines_without_cwd ) );
-         }
-         else {
-            @pstats = File::Listing::parse_dir( $statlines[0] );
+         foreach ( @statlines ) {
+            m/ \.$/ ? ( push @lines_with_cwd, $_ ) : ( push @lines_without_cwd, $_ );
          }
 
-         # We want to present a HASH refs, as they're nicer to work with
-         foreach ( @pstats ) {
-            my %h;
-            @h{qw( name type size mtime mode )} = @$_;
-            $_ = \%h;
-         }
+         @lines_with_cwd == 1 or
+            return $on_error->( "Did not find '.' in LIST output on directory $args{path}" );
 
-         $on_stat->( @pstats );
-      },
-      on_error => $args{on_error},
-   );
+         my $l = $lines_with_cwd[0];
+         $l =~ s/ \.$/ DIR/;
+
+         ( my $cwdstat ) = File::Listing::parse_dir( $l );
+
+         $cwdstat->[0] eq "DIR" or
+            return $on_error->( "Parsed listing did not contain DIR as the name like we expected for $args{path}" );
+
+         $cwdstat->[0] = ".";
+
+         @pstats = ( $cwdstat, File::Listing::parse_dir( \@lines_without_cwd ) );
+      }
+      else {
+         @pstats = File::Listing::parse_dir( $statlines[0] );
+      }
+
+      # We want to present a HASH refs, as they're nicer to work with
+      foreach ( @pstats ) {
+         my %h;
+         @h{qw( name type size mtime mode )} = @$_;
+         $_ = \%h;
+      }
+
+      return Future->new->done( @pstats );
+   });
+
+   $f->on_done( $on_stat  ) if $on_stat;
+   $f->on_fail( $on_error ) if $on_error;
+
+   return $f;
 }
 
-=head2 $ftp->stor( %args )
+=head2 $ftp->stor( %args ) ==> ()
 
 Stores a file on the remote server. Takes the following arguments
 
@@ -1020,13 +1012,13 @@ New contents for the file
 
 =item on_stored => CODE
 
-Continuation to invoke on success.
+Optional when returning a future. Continuation to invoke on success.
 
  $on_stored->()
 
 =item on_error => CODE
 
-Continuation to invoke on an error.
+Optional. Continuation to invoke on an error.
 
  $on_error->( $message )
 
@@ -1045,23 +1037,21 @@ sub stor
    my $data = $args{data};
    defined $data or croak "Expected 'data'";
 
-   my $on_stored = $args{on_stored};
-   ref $on_stored eq "CODE" or croak "Expected 'on_stored' as CODE reference";
+   my $on_stored = $args{on_stored} or defined wantarray or croak "Expected 'on_stored'";
 
    my $on_error = $args{on_error};
-   $on_error ||= sub { die "Error $_[0] during STOR" };
+   $on_error ||= sub { die "Error $_[0] during STOR" } if !defined wantarray;
 
-   $self->_do_command_send_dataconn(
+   my $f = $self->_do_command_send_dataconn(
       "STOR $path",
       $data,
-      $on_stored, $on_error
    );
+
+   $f->on_done( $on_stored ) if $on_stored;
+   $f->on_fail( $on_error  ) if $on_error;
+
+   return $f;
 }
-
-# Keep perl happy; keep Britain tidy
-1;
-
-__END__
 
 =head1 SEE ALSO
 
@@ -1076,3 +1066,7 @@ L<http://tools.ieft.org/html/rfc959> - FILE TRANSFER PROTOCOL (FTP)
 =head1 AUTHOR
 
 Paul Evans <leonerd@leonerd.org.uk>
+
+=cut
+
+0x55AA;

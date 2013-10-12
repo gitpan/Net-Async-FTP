@@ -26,57 +26,82 @@ my $serversock = IO::Socket::INET->new(
 
 $serversock->blocking(0);
 
-my $ftp = Net::Async::FTP->new();
-$loop->add( $ftp );
+# ->connect future
+{
+   my $ftp = Net::Async::FTP->new();
+   $loop->add( $ftp );
 
-my $connected = 0;
+   my $connect_f = $ftp->connect(
+      host    => "localhost",
+      service => $serversock->sockport,
+      family  => AF_INET,
 
-$ftp->connect(
-   host    => "localhost",
-   service => $serversock->sockport,
-   family  => AF_INET,
+      user => "testuser",
+      pass => "secret",
+   );
 
-   user => "testuser",
-   pass => "secret",
+   my $newclient;
+   wait_for { $newclient = $serversock->accept };
 
-   on_connected => sub { $connected++ },
-   on_error     => sub { die "Test failed early - $_[0]" },
-);
+   $newclient->syswrite( "220 Welcome to FTP$CRLF" );
 
-my $newclient;
-wait_for { $newclient = $serversock->accept };
+   wait_for { $connect_f->is_ready };
+   $connect_f->get;
 
-$newclient->syswrite( "220 Welcome to FTP$CRLF" );
+   my $login_f = $ftp->login(
+      user => "testuser",
+      pass => "secret",
+   );
 
-wait_for { $connected };
+   my $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $newclient => $server_stream;
 
-is( $connected, 1, '$connected after 220' );
+   is( $server_stream, "USER testuser$CRLF", 'USER command' );
 
-my $loggedin = 0;
+   $newclient->syswrite( "331 Password Required$CRLF" );
 
-$ftp->login(
-   user => "testuser",
-   pass => "secret",
-   on_login => sub { $loggedin++ },
-   on_error => sub { die "Test failed early - $_[0]" },
-);
+   $server_stream = "";
+   wait_for_stream { $server_stream =~ m/$CRLF/ } $newclient => $server_stream;
 
-my $server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $newclient => $server_stream;
+   is( $server_stream, "PASS secret$CRLF", 'PASS command' );
 
-is( $server_stream, "USER testuser$CRLF", 'USER command' );
+   $newclient->syswrite( "230 Logged In$CRLF" );
 
-$newclient->syswrite( "331 Password Required$CRLF" );
+   wait_for { $login_f->is_ready };
+   $login_f->get;
 
-$server_stream = "";
-wait_for_stream { $server_stream =~ m/$CRLF/ } $newclient => $server_stream;
+   pass( 'Logged in after 230' );
 
-is( $server_stream, "PASS secret$CRLF", 'PASS command' );
+   $loop->remove( $ftp );
+}
 
-$newclient->syswrite( "230 Logged In$CRLF" );
+# Legacy callback
+{
+   my $ftp = Net::Async::FTP->new();
+   $loop->add( $ftp );
 
-wait_for { $loggedin };
+   my $connected = 0;
 
-is( $loggedin, 1, '$loggedin after 230' );
+   $ftp->connect(
+      host    => "localhost",
+      service => $serversock->sockport,
+      family  => AF_INET,
+
+      user => "testuser",
+      pass => "secret",
+
+      on_connected => sub { $connected++ },
+      on_error     => sub { die "Test failed early - $_[0]" },
+   );
+
+   my $newclient;
+   wait_for { $newclient = $serversock->accept };
+
+   $newclient->syswrite( "220 Welcome to FTP$CRLF" );
+
+   wait_for { $connected };
+
+   is( $connected, 1, '$connected after 220' );
+}
 
 done_testing;
