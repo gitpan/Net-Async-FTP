@@ -12,7 +12,7 @@ IO::Async::Stream->VERSION( '0.59' );
 
 use Carp;
 
-our $VERSION = '0.07';
+our $VERSION = '0.08';
 
 use Socket qw( AF_INET SOCK_STREAM inet_aton pack_sockaddr_in );
 
@@ -168,7 +168,8 @@ sub connect
    $f->on_done( $on_connected ) if $on_connected;
    $f->on_fail( $on_error )     if $on_error;
 
-   return $f;
+   return $f if defined wantarray;
+   $f->on_ready( sub { undef $f } ); # Intentional cycle
 }
 
 my %NUMTYPES = (
@@ -312,6 +313,7 @@ sub _do_command_collect_dataconn
          $connect_f->on_done( sub {
             $dataconn->configure( read_handle => $_[0] );
          });
+         $connect_f->on_ready( sub { undef $connect_f } ); # Intentional cycle
 
          $self->write( "$command$CRLF" );
 
@@ -343,6 +345,7 @@ sub _do_command_send_dataconn
          $connect_f->on_done( sub {
             $dataconn->configure( write_handle => $_[0] );
          });
+         $connect_f->on_ready( sub { undef $connect_f } ); # Intentional cycle
 
          $self->write( "$command$CRLF" );
 
@@ -414,7 +417,8 @@ sub login
    $f->on_done( $on_login ) if $on_login;
    $f->on_fail( $on_error ) if $on_error;
 
-   return $f;
+   return $f if defined wantarray;
+   $f->on_ready( sub { undef $f } ); # Intentional cycle
 }
 
 =head2 $ftp->rename( %args ) ==> ()
@@ -471,7 +475,8 @@ sub rename
    $f->on_done( $on_done  ) if $on_done;
    $f->on_fail( $on_error ) if $on_error;
 
-   return $f;
+   return $f if defined wantarray;
+   $f->on_ready( sub { undef $f } ); # Intentional cycle
 }
 
 =head2 $ftp->dele( %args ) ==> ()
@@ -655,7 +660,8 @@ sub list_parsed
    $f->on_done( $on_list  ) if $on_list;
    $f->on_fail( $on_error ) if $on_error;
 
-   return $f;
+   return $f if defined wantarray;
+   $f->on_ready( sub { undef $f } ); # Intentional cycle
 }
 
 =head2 $ftp->nlist( %args ) ==> $list
@@ -758,7 +764,8 @@ sub namelist
    $f->on_done( $on_names ) if $on_names;
    $f->on_fail( $on_error ) if $on_error;
 
-   return $f;
+   return $f if defined wantarray;
+   $f->on_ready( sub { undef $f } ); # Intentional cycle
 }
 
 =head2 $ftp->retr( %args ) ==> $content
@@ -862,7 +869,8 @@ sub stat
    $f->on_done( $on_stat  ) if $on_stat;
    $f->on_fail( $on_error ) if $on_error;
 
-   return $f;
+   return $f if defined wantarray;
+   $f->on_ready( sub { undef $f } ); # Intentional cycle
 }
 
 =head2 $ftp->stat_parsed( %args ) ==> @stat
@@ -993,7 +1001,8 @@ sub stat_parsed
    $f->on_done( $on_stat  ) if $on_stat;
    $f->on_fail( $on_error ) if $on_error;
 
-   return $f;
+   return $f if defined wantarray;
+   $f->on_ready( sub { undef $f } ); # Intentional cycle
 }
 
 =head2 $ftp->stor( %args ) ==> ()
